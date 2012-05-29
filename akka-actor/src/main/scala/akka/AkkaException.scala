@@ -1,52 +1,29 @@
 /**
- * Copyright (C) 2009-2011 Scalable Solutions AB <http://scalablesolutions.se>
+ * Copyright (C) 2009-2012 Typesafe Inc. <http://www.typesafe.com>
  */
 
 package akka
 
-import akka.util.Logging
-import akka.actor.newUuid
-
-import java.io.{StringWriter, PrintWriter}
-import java.net.{InetAddress, UnknownHostException}
-
 /**
  * Akka base Exception. Each Exception gets:
  * <ul>
- *   <li>a UUID for tracking purposes</li>
- *   <li>a message including exception name, uuid, original message and the stacktrace</li>
- *   <li>a method 'log' that will log the exception once and only once</li>
+ *   <li>a uuid for tracking purposes</li>
+ *   <li>toString that includes exception name, message and uuid</li>
+ *   <li>toLongString which also includes the stack trace</li>
  * </ul>
- *
- * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
  */
-@serializable abstract class AkkaException(message: String) extends RuntimeException(message) {
-  import AkkaException._
-  val exceptionName = getClass.getName
+//TODO add @SerialVersionUID(1L) when SI-4804 is fixed
+class AkkaException(message: String, cause: Throwable) extends RuntimeException(message, cause) with Serializable {
+  def this(msg: String) = this(msg, null)
 
-  val uuid = "%s_%s".format(hostname, newUuid)
+  lazy val uuid: String = java.util.UUID.randomUUID().toString
 
-  override val toString = "%s\n\t[%s]\n\t%s\n\t%s".format(exceptionName, uuid, message, stackTrace)
-
-  val stackTrace = {
-    val sw = new StringWriter
-    val pw = new PrintWriter(sw)
-    printStackTrace(pw)
-    sw.toString
-  }
-
-  private lazy val _log = {
-    AkkaException.log.slf4j.error(toString)
-    ()
-  }
-
-  def log: Unit = _log
+  override def toString(): String = uuid + super.toString()
 }
 
-object AkkaException extends Logging {
-  val hostname = try {
-    InetAddress.getLocalHost.getHostName
-  } catch {
-    case e: UnknownHostException => "unknown"
-  }
+/**
+ * This exception is thrown when Akka detects a problem with the provided configuration
+ */
+class ConfigurationException(message: String, cause: Throwable) extends AkkaException(message, cause) {
+  def this(msg: String) = this(msg, null)
 }

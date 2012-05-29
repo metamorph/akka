@@ -1,111 +1,46 @@
 /**
- * Copyright (C) 2009-2011 Scalable Solutions AB <http://scalablesolutions.se>
+ * Copyright (C) 2009-2012 Typesafe Inc. <http://www.typesafe.com>
  */
 
 package akka.remote
 
-import akka.serialization.{Serializer, Serializable}
-import akka.remote.protocol.RemoteProtocol._
-import akka.util._
+import akka.remote.RemoteProtocol._
+import com.google.protobuf.ByteString
+import akka.actor.ExtendedActorSystem
+import akka.serialization.SerializationExtension
 
-import com.google.protobuf.{Message, ByteString}
+/**
+ * MessageSerializer is a helper for serialize and deserialize messages
+ */
+private[akka] object MessageSerializer {
 
-object MessageSerializer extends Logging {
-  private def SERIALIZER_JAVA:       Serializer.Java      = Serializer.Java
-  private def SERIALIZER_JAVA_JSON:  Serializer.JavaJSON  = Serializer.JavaJSON
-  private def SERIALIZER_SCALA_JSON: Serializer.ScalaJSON = Serializer.ScalaJSON
-  private def SERIALIZER_SBINARY:    Serializer.SBinary   = Serializer.SBinary
-  private def SERIALIZER_PROTOBUF:   Serializer.Protobuf  = Serializer.Protobuf
-
-  def setClassLoader(cl: ClassLoader) = {
-    val someCl = Some(cl)
-    SERIALIZER_JAVA.classLoader       = someCl
-    SERIALIZER_JAVA_JSON.classLoader  = someCl
-    SERIALIZER_SCALA_JSON.classLoader = someCl
-    SERIALIZER_SBINARY.classLoader    = someCl
+  /**
+   * Uses Akka Serialization for the specified ActorSystem to transform the given MessageProtocol to a message
+   */
+  def deserialize(system: ExtendedActorSystem, messageProtocol: MessageProtocol): AnyRef = {
+    val clazz =
+      if (messageProtocol.hasMessageManifest) {
+        system.dynamicAccess.getClassFor[AnyRef](messageProtocol.getMessageManifest.toStringUtf8)
+          .fold(throw _, Some(_))
+      } else None
+    SerializationExtension(system)
+      .deserialize(messageProtocol.getMessage.toByteArray, messageProtocol.getSerializerId, clazz) match {
+        case Left(e)  ⇒ throw e
+        case Right(r) ⇒ r
+      }
   }
 
-  def deserialize(messageProtocol: MessageProtocol): Any = {
-    messageProtocol.getSerializationScheme match {
-      case SerializationSchemeType.JAVA =>
-        unbox(SERIALIZER_JAVA.fromBinary(messageProtocol.getMessage.toByteArray, None))
-
-      case SerializationSchemeType.PROTOBUF =>
-        val clazz = loadManifest(SERIALIZER_PROTOBUF.classLoader, messageProtocol)
-        SERIALIZER_PROTOBUF.fromBinary(messageProtocol.getMessage.toByteArray, Some(clazz))
-
-      case SerializationSchemeType.SBINARY =>
-        val clazz = loadManifest(SERIALIZER_SBINARY.classLoader, messageProtocol)
-        val renderer = clazz.newInstance.asInstanceOf[Serializable.SBinary[_ <: AnyRef]]
-        renderer.fromBytes(messageProtocol.getMessage.toByteArray)
-
-      case SerializationSchemeType.SCALA_JSON =>
-        val clazz = loadManifest(SERIALIZER_SCALA_JSON.classLoader, messageProtocol)
-        val renderer = clazz.newInstance.asInstanceOf[Serializable.ScalaJSON[_]]
-        renderer.fromBytes(messageProtocol.getMessage.toByteArray)
-
-      case SerializationSchemeType.JAVA_JSON =>
-        val clazz = loadManifest(SERIALIZER_JAVA_JSON.classLoader, messageProtocol)
-        SERIALIZER_JAVA_JSON.fromBinary(messageProtocol.getMessage.toByteArray, Some(clazz))
-    }
-  }
-
-  def serialize(message: Any): MessageProtocol = {
+  /**
+   * Uses Akka Serialization for the specified ActorSystem to transform the given message to a MessageProtocol
+   */
+  def serialize(system: ExtendedActorSystem, message: AnyRef): MessageProtocol = {
+    val s = SerializationExtension(system)
+    val serializer = s.findSerializerFor(message)
     val builder = MessageProtocol.newBuilder
-    if (message.isInstanceOf[Message]) {
-      val serializable = message.asInstanceOf[Message]
-      builder.setSerializationScheme(SerializationSchemeType.PROTOBUF)
-      builder.setMessage(ByteString.copyFrom(serializable.toByteArray))
-      builder.setMessageManifest(ByteString.copyFromUtf8(serializable.getClass.getName))
-    } else if (message.isInstanceOf[Serializable.ScalaJSON[_]]) {
-      builder.setSerializationScheme(SerializationSchemeType.SCALA_JSON)
-      setMessageAndManifest(builder, message.asInstanceOf[Serializable.ScalaJSON[_ <: Any]])
-    } else if (message.isInstanceOf[Serializable.SBinary[_]]) {
-      builder.setSerializationScheme(SerializationSchemeType.SBINARY)
-      setMessageAndManifest(builder, message.asInstanceOf[Serializable.SBinary[_ <: Any]])
-    } else if (message.isInstanceOf[Serializable.JavaJSON]) {
-      builder.setSerializationScheme(SerializationSchemeType.JAVA_JSON)
-      setMessageAndManifest(builder, message.asInstanceOf[Serializable.JavaJSON])
-    } else {
-      // default, e.g. if no protocol used explicitly then use Java serialization
-      builder.setSerializationScheme(SerializationSchemeType.JAVA)
-      builder.setMessage(ByteString.copyFrom(SERIALIZER_JAVA.toBinary(box(message))))
-    }
+    builder.setMessage(ByteString.copyFrom(serializer.toBinary(message)))
+    builder.setSerializerId(serializer.identifier)
+    if (serializer.includeManifest)
+      builder.setMessageManifest(ByteString.copyFromUtf8(message.getClass.getName))
     builder.build
-  }
-
-  private def loadManifest(classLoader: Option[ClassLoader], messageProtocol: MessageProtocol): Class[_] = {
-    val manifest = messageProtocol.getMessageManifest.toStringUtf8
-    if (classLoader.isDefined) classLoader.get.loadClass(manifest)
-    else Class.forName(manifest)
-  }
-
-  private def setMessageAndManifest(builder: MessageProtocol.Builder, serializable: Serializable) = {
-    builder.setMessage(ByteString.copyFrom(serializable.toBytes))
-    builder.setMessageManifest(ByteString.copyFromUtf8(serializable.getClass.getName))
-  }
-
-  private def box(value: Any): AnyRef = value match {
-    case value: Boolean => new java.lang.Boolean(value)
-    case value: Char    => new java.lang.Character(value)
-    case value: Short   => new java.lang.Short(value)
-    case value: Int     => new java.lang.Integer(value)
-    case value: Long    => new java.lang.Long(value)
-    case value: Float   => new java.lang.Float(value)
-    case value: Double  => new java.lang.Double(value)
-    case value: Byte    => new java.lang.Byte(value)
-    case value          => value.asInstanceOf[AnyRef]
-  }
-
-  private def unbox(value: AnyRef): Any = value match {
-    case value: java.lang.Boolean   => value.booleanValue
-    case value: java.lang.Character => value.charValue
-    case value: java.lang.Short     => value.shortValue
-    case value: java.lang.Integer   => value.intValue
-    case value: java.lang.Long      => value.longValue
-    case value: java.lang.Float     => value.floatValue
-    case value: java.lang.Double    => value.doubleValue
-    case value: java.lang.Byte      => value.byteValue
-    case value                      => value
   }
 }
