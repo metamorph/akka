@@ -4,7 +4,6 @@
 package akka.cluster
 
 import com.typesafe.config.ConfigFactory
-import org.scalatest.BeforeAndAfter
 import akka.remote.testkit.MultiNodeConfig
 import akka.remote.testkit.MultiNodeSpec
 import akka.testkit._
@@ -22,14 +21,10 @@ class NodeMembershipMultiJvmNode1 extends NodeMembershipSpec
 class NodeMembershipMultiJvmNode2 extends NodeMembershipSpec
 class NodeMembershipMultiJvmNode3 extends NodeMembershipSpec
 
-abstract class NodeMembershipSpec extends MultiNodeSpec(NodeMembershipMultiJvmSpec) with MultiNodeClusterSpec with ImplicitSender with BeforeAndAfter {
+abstract class NodeMembershipSpec extends MultiNodeSpec(NodeMembershipMultiJvmSpec) with MultiNodeClusterSpec {
   import NodeMembershipMultiJvmSpec._
 
   override def initialParticipants = 3
-
-  after {
-    testConductor.enter("after")
-  }
 
   lazy val firstAddress = node(first).address
   lazy val secondAddress = node(second).address
@@ -37,7 +32,7 @@ abstract class NodeMembershipSpec extends MultiNodeSpec(NodeMembershipMultiJvmSp
 
   "A set of connected cluster systems" must {
 
-    "(when two systems) start gossiping to each other so that both systems gets the same gossip info" taggedAs LongRunningTest in {
+    "(when two nodes) start gossiping to each other so that both nodes gets the same gossip info" taggedAs LongRunningTest in {
 
       // make sure that the node-to-join is started before other join
       runOn(first) {
@@ -55,9 +50,11 @@ abstract class NodeMembershipSpec extends MultiNodeSpec(NodeMembershipMultiJvmSp
         awaitCond(cluster.convergence.isDefined)
       }
 
+      testConductor.enter("after-1")
+
     }
 
-    "(when three systems) start gossiping to each other so that both systems gets the same gossip info" taggedAs LongRunningTest in {
+    "(when three nodes) start gossiping to each other so that all nodes gets the same gossip info" taggedAs LongRunningTest in {
 
       runOn(third) {
         cluster.join(firstAddress)
@@ -69,6 +66,8 @@ abstract class NodeMembershipSpec extends MultiNodeSpec(NodeMembershipMultiJvmSp
         cluster.latestGossip.members.forall(_.status == MemberStatus.Up)
       }
       awaitCond(cluster.convergence.isDefined)
+
+      testConductor.enter("after-2")
 
     }
   }

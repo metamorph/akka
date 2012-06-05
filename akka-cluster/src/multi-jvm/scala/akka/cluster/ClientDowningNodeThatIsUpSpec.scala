@@ -4,7 +4,6 @@
 package akka.cluster
 
 import com.typesafe.config.ConfigFactory
-import org.scalatest.BeforeAndAfter
 import akka.remote.testkit.MultiNodeConfig
 import akka.remote.testkit.MultiNodeSpec
 import akka.testkit._
@@ -26,8 +25,7 @@ class ClientDowningNodeThatIsUpMultiJvmNode4 extends ClientDowningNodeThatIsUpSp
 
 class ClientDowningNodeThatIsUpSpec
   extends MultiNodeSpec(ClientDowningNodeThatIsUpMultiJvmSpec)
-  with MultiNodeClusterSpec
-  with ImplicitSender with BeforeAndAfter {
+  with MultiNodeClusterSpec {
   import ClientDowningNodeThatIsUpMultiJvmSpec._
 
   override def initialParticipants = 4
@@ -43,7 +41,6 @@ class ClientDowningNodeThatIsUpSpec
         testConductor.enter("all-up")
 
         // mark 'third' node as DOWN
-        testConductor.removeNode(third)
         cluster.down(thirdAddress)
         testConductor.enter("down-third-node")
 
@@ -56,6 +53,8 @@ class ClientDowningNodeThatIsUpSpec
         cluster.join(node(first).address)
         awaitUpConvergence(numberOfMembers = 4)
         testConductor.enter("all-up")
+        testConductor.enter("down-third-node")
+        testConductor.enter("await-completion")
       }
 
       runOn(second, fourth) {

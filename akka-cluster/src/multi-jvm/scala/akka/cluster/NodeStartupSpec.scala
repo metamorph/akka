@@ -4,7 +4,6 @@
 package akka.cluster
 
 import com.typesafe.config.ConfigFactory
-import org.scalatest.BeforeAndAfter
 import akka.remote.testkit.MultiNodeConfig
 import akka.remote.testkit.MultiNodeSpec
 import akka.testkit._
@@ -20,14 +19,10 @@ object NodeStartupMultiJvmSpec extends MultiNodeConfig {
 class NodeStartupMultiJvmNode1 extends NodeStartupSpec
 class NodeStartupMultiJvmNode2 extends NodeStartupSpec
 
-abstract class NodeStartupSpec extends MultiNodeSpec(NodeStartupMultiJvmSpec) with MultiNodeClusterSpec with ImplicitSender with BeforeAndAfter {
+abstract class NodeStartupSpec extends MultiNodeSpec(NodeStartupMultiJvmSpec) with MultiNodeClusterSpec {
   import NodeStartupMultiJvmSpec._
 
   override def initialParticipants = 2
-
-  after {
-    testConductor.enter("after")
-  }
 
   lazy val firstAddress = node(first).address
   lazy val secondAddress = node(second).address
@@ -37,20 +32,10 @@ abstract class NodeStartupSpec extends MultiNodeSpec(NodeStartupMultiJvmSpec) wi
     "be a singleton cluster when started up" taggedAs LongRunningTest in {
       runOn(first) {
         awaitCond(cluster.isSingletonCluster)
-        // FIXME #2117 singletonCluster should reach convergence
-        //awaitCond(cluster.convergence.isDefined)
+        awaitUpConvergence(numberOfMembers = 1)
+        assertLeader(first)
       }
-    }
-
-    "be in 'Joining' phase when started up" taggedAs LongRunningTest in {
-      runOn(first) {
-        val members = cluster.latestGossip.members
-        members.size must be(1)
-
-        val joiningMember = members find (_.address == firstAddress)
-        joiningMember must not be (None)
-        joiningMember.get.status must be(MemberStatus.Joining)
-      }
+      testConductor.enter("after-1")
     }
   }
 
@@ -68,6 +53,8 @@ abstract class NodeStartupSpec extends MultiNodeSpec(NodeStartupMultiJvmSpec) wi
       }
       cluster.latestGossip.members.size must be(2)
       awaitCond(cluster.convergence.isDefined)
+      assertLeader(first, second)
+      testConductor.enter("after-2")
     }
   }
 

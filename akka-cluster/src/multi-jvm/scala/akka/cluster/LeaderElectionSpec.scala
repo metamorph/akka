@@ -49,6 +49,7 @@ abstract class LeaderElectionSpec extends MultiNodeSpec(LeaderElectionMultiJvmSp
         cluster.join(firstAddress)
         awaitUpConvergence(numberOfMembers = roles.size)
         cluster.isLeader must be(myself == roles.head)
+        assertLeaderIn(roles)
       }
       testConductor.enter("after")
     }
@@ -58,13 +59,13 @@ abstract class LeaderElectionSpec extends MultiNodeSpec(LeaderElectionMultiJvmSp
       currentRoles.size must be >= (2)
       val leader = currentRoles.head
       val aUser = currentRoles.last
+      val remainingRoles = currentRoles.tail
 
       myself match {
 
         case `controller` ⇒
           testConductor.enter("before-shutdown")
           testConductor.shutdown(leader, 0)
-          testConductor.removeNode(leader)
           testConductor.enter("after-shutdown", "after-down", "completed")
 
         case `leader` ⇒
@@ -78,13 +79,14 @@ abstract class LeaderElectionSpec extends MultiNodeSpec(LeaderElectionMultiJvmSp
           cluster.down(leaderAddress)
           testConductor.enter("after-down", "completed")
 
-        case _ if currentRoles.tail.contains(myself) ⇒
+        case _ if remainingRoles.contains(myself) ⇒
           // remaining cluster nodes, not shutdown
           testConductor.enter("before-shutdown", "after-shutdown", "after-down")
 
           awaitUpConvergence(currentRoles.size - 1)
-          val nextExpectedLeader = currentRoles.tail.head
+          val nextExpectedLeader = remainingRoles.head
           cluster.isLeader must be(myself == nextExpectedLeader)
+          assertLeaderIn(remainingRoles)
 
           testConductor.enter("completed")
 

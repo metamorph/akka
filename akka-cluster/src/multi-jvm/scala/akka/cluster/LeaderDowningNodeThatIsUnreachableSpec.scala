@@ -4,7 +4,6 @@
 package akka.cluster
 
 import com.typesafe.config.ConfigFactory
-import org.scalatest.BeforeAndAfter
 import akka.remote.testkit.MultiNodeConfig
 import akka.remote.testkit.MultiNodeSpec
 import akka.testkit._
@@ -17,7 +16,7 @@ object LeaderDowningNodeThatIsUnreachableMultiJvmSpec extends MultiNodeConfig {
   val third = role("third")
   val fourth = role("fourth")
 
-  commonConfig(debugConfig(on = false).
+  commonConfig(debugConfig(on = true).
     withFallback(ConfigFactory.parseString("""
       akka.cluster {
         auto-down = on
@@ -34,8 +33,7 @@ class LeaderDowningNodeThatIsUnreachableMultiJvmNode4 extends LeaderDowningNodeT
 
 class LeaderDowningNodeThatIsUnreachableSpec
   extends MultiNodeSpec(LeaderDowningNodeThatIsUnreachableMultiJvmSpec)
-  with MultiNodeClusterSpec
-  with ImplicitSender with BeforeAndAfter {
+  with MultiNodeClusterSpec {
   import LeaderDowningNodeThatIsUnreachableMultiJvmSpec._
 
   override def initialParticipants = 4
@@ -52,12 +50,11 @@ class LeaderDowningNodeThatIsUnreachableSpec
 
         // kill 'fourth' node
         testConductor.shutdown(fourth, 0)
-        testConductor.removeNode(fourth)
         testConductor.enter("down-fourth-node")
 
         // --- HERE THE LEADER SHOULD DETECT FAILURE AND AUTO-DOWN THE UNREACHABLE NODE ---
 
-        awaitUpConvergence(numberOfMembers = 3, canNotBePartOfMemberRing = Seq(fourthAddress), 30.seconds.dilated)
+        awaitUpConvergence(numberOfMembers = 3, canNotBePartOfMemberRing = Seq(fourthAddress), 30.seconds)
         testConductor.enter("await-completion")
       }
 
@@ -77,7 +74,7 @@ class LeaderDowningNodeThatIsUnreachableSpec
 
         testConductor.enter("down-fourth-node")
 
-        awaitUpConvergence(numberOfMembers = 3, canNotBePartOfMemberRing = Seq(fourthAddress), 30.seconds.dilated)
+        awaitUpConvergence(numberOfMembers = 3, canNotBePartOfMemberRing = Seq(fourthAddress), 30.seconds)
         testConductor.enter("await-completion")
       }
     }
@@ -92,12 +89,11 @@ class LeaderDowningNodeThatIsUnreachableSpec
 
         // kill 'second' node
         testConductor.shutdown(second, 0)
-        testConductor.removeNode(second)
         testConductor.enter("down-second-node")
 
         // --- HERE THE LEADER SHOULD DETECT FAILURE AND AUTO-DOWN THE UNREACHABLE NODE ---
 
-        awaitUpConvergence(numberOfMembers = 2, canNotBePartOfMemberRing = Seq(secondAddress), 30.seconds.dilated)
+        awaitUpConvergence(numberOfMembers = 2, canNotBePartOfMemberRing = Seq(secondAddress), 30.seconds)
         testConductor.enter("await-completion")
       }
 
@@ -108,7 +104,7 @@ class LeaderDowningNodeThatIsUnreachableSpec
         testConductor.enter("all-up")
       }
 
-      runOn(second, third) {
+      runOn(third) {
         cluster.join(node(first).address)
         awaitUpConvergence(numberOfMembers = 3)
 
